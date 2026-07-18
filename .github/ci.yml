@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Create mock data for tests
+        run: |
+          mkdir -p data/raw
+          python -c "
+          import pandas as pd, numpy as np, random
+          rng = np.random.RandomState(42)
+          n = 200
+          df = pd.DataFrame({
+              'churn': rng.choice([0, 1], size=n, p=[0.7, 0.3]),
+              'revenue': rng.uniform(50, 300, n),
+              'mou': rng.uniform(100, 1000, n),
+              'months': rng.randint(1, 60, n),
+          })
+          df.to_csv('data/raw/cell2cell.csv', index=False)
+          print(f'Created mock CSV with {len(df)} rows')
+          "
+
+      - name: Run tests
+        run: uv run pytest tests/ -v --cov=src
+
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: .coverage
+          retention-days: 7

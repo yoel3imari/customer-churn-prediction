@@ -1,0 +1,8 @@
+# =============================================================================
+# Custom MLflow image — adds psycopg2 (PostgreSQL driver) to the official image
+# =============================================================================
+FROM ghcr.io/mlflow/mlflow:v2.20.0
+
+COPY --from=ghcr.io/astral-sh/uv:0.11 /uv /uvx /bin/
+
+RUN uv pip install --system psycopg2-binary>=2.9.0

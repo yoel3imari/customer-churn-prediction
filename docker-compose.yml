@@ -1,0 +1,54 @@
+name: churn-prediction
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: mlflow
+      POSTGRES_PASSWORD: ${MLFLOW_PG_PASSWORD:-mlflow}
+      POSTGRES_DB: mlflow
+    ports:
+      - "5435:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mlflow"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  mlflow:
+    build:
+      dockerfile: Dockerfile.mlflow
+    entrypoint: >
+      mlflow server
+      --host 0.0.0.0
+      --port 5005
+      --backend-store-uri postgresql://mlflow:${MLFLOW_PG_PASSWORD:-mlflow}@postgres:5432/mlflow
+      --default-artifact-root file:///mlflow/artifacts
+      --registry-store-uri postgresql://mlflow:${MLFLOW_PG_PASSWORD:-mlflow}@postgres:5432/mlflow
+    ports:
+      - "5005:5005"
+    volumes:
+      - mlflow_artifacts:/mlflow/artifacts
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  app:
+    build:
+      context: .
+      target: runtime
+    volumes:
+      - .:/app
+      - /app/.venv  # don't shadow the image's .venv with host's
+      - mlflow_artifacts:/mlflow/artifacts
+    environment:
+      MLFLOW_TRACKING_URI: postgresql://mlflow:${MLFLOW_PG_PASSWORD:-mlflow}@postgres:5432/mlflow
+      PYTHONPATH: /app
+    profiles:
+      - manual
+
+volumes:
+  postgres_data:
+  mlflow_artifacts:
