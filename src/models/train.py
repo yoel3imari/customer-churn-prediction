@@ -43,21 +43,31 @@ def resolve_class(algorithm_name: str) -> tuple:
     raise ValueError(f"Unknown algorithm: {algorithm_name}")
 
 
-def _get_class_weight_params(algorithm_name: str, y_train: Optional[Any] = None) -> dict:
-    if algorithm_name in ("LogisticRegression", "RandomForest"):
-        return {"class_weight": "balanced"}
-    if algorithm_name == "XGBoost":
-        if y_train is None:
-            return {"scale_pos_weight": 1.0}
-        counts = np.bincount(np.asarray(y_train).astype(int))
-        neg, pos = counts[0], counts[1]
-        weight = (neg / pos) if pos > 0 else 1.0
-        return {"scale_pos_weight": float(weight)}
-    if algorithm_name == "LightGBM":
-        return {"is_unbalance": True}
-    if algorithm_name == "CatBoost":
-        return {"auto_class_weights": "Balanced"}
-    return {}
+def _get_algorithm_default_params(algorithm_name: str, strategy: str, y_train: Optional[Any] = None) -> dict:
+    defaults: dict = {}
+    if algorithm_name == "LogisticRegression":
+        defaults["max_iter"] = 1000
+        if strategy == "class_weight":
+            defaults["class_weight"] = "balanced"
+    elif algorithm_name == "RandomForest":
+        if strategy == "class_weight":
+            defaults["class_weight"] = "balanced"
+    elif algorithm_name == "XGBoost":
+        if strategy == "class_weight":
+            if y_train is None:
+                defaults["scale_pos_weight"] = 1.0
+            else:
+                counts = np.bincount(np.asarray(y_train).astype(int))
+                neg, pos = counts[0], counts[1]
+                weight = (neg / pos) if pos > 0 else 1.0
+                defaults["scale_pos_weight"] = float(weight)
+    elif algorithm_name == "LightGBM":
+        if strategy == "class_weight":
+            defaults["is_unbalance"] = True
+    elif algorithm_name == "CatBoost":
+        if strategy == "class_weight":
+            defaults["auto_class_weights"] = "Balanced"
+    return defaults
 
 
 def _evaluate(model: Any, X_val: Any, y_val: Any) -> dict:
@@ -74,19 +84,20 @@ def _evaluate(model: Any, X_val: Any, y_val: Any) -> dict:
 
 def _enable_autolog(algorithm: str, is_sklearn: bool) -> None:
     if is_sklearn:
-        mlflow.sklearn.autolog(log_models=False)
+        mlflow.sklearn.autolog(log_models=False, log_datasets=False)
     elif algorithm == "XGBoost":
-        mlflow.xgboost.autolog(log_models=False)
+        mlflow.xgboost.autolog(log_models=False, log_datasets=False)
     elif algorithm == "LightGBM":
-        mlflow.lightgbm.autolog(log_models=False)
-    elif algorithm == "CatBoost":
-        mlflow.catboost.autolog(log_models=False)
+        mlflow.lightgbm.autolog(log_models=False, log_datasets=False)
 
 
 def _register_model(algorithm: str, strategy: str, model: Any) -> None:
     if strategy == "smote" or algorithm in ("LogisticRegression", "RandomForest"):
+        kwargs = {}
+        if strategy == "smote":
+            kwargs["serialization_format"] = "cloudpickle"
         mlflow.sklearn.log_model(
-            model, "model", registered_model_name=MLFLOW_REGISTRY_NAME
+            model, "model", registered_model_name=MLFLOW_REGISTRY_NAME, **kwargs
         )
     elif algorithm == "XGBoost":
         mlflow.xgboost.log_model(
@@ -118,7 +129,10 @@ def train_model(
     model_class, is_sklearn = resolve_class(algorithm)
     _enable_autolog(algorithm, is_sklearn)
 
-    model_params: dict = dict(params or {})
+    model_params: dict = _get_algorithm_default_params(algorithm, strategy, y_train)
+    if params:
+        model_params.update(params)
+
     if algorithm == "CatBoost":
         model_params.setdefault("random_seed", RANDOM_STATE)
         model_params.setdefault("verbose", 0)
@@ -137,11 +151,10 @@ def train_model(
           f"Params: {len(model_params)}")
 
     # ── 2. Train on processed (NaN-free, engineered, scaled) data ────────────
-    with mlflow.start_run(run_name=run_name) as run:
+    with mlflow.start_run(run_name=run_name, nested=True) as run:
         run_id = run.info.run_id
 
         if strategy == "class_weight":
-            model_params.update(_get_class_weight_params(algorithm, y_train))
             model = model_class(**model_params)
             model.fit(X_train_processed, y_train)
         elif strategy == "smote":
@@ -158,8 +171,8 @@ def train_model(
         else:
             raise ValueError(f"Unknown imbalance strategy: {strategy}")
 
-        mlflow.log_param("algorithm", algorithm)
-        mlflow.log_param("strategy", strategy)
+        mlflow.log_param("model_algorithm", algorithm)
+        mlflow.log_param("imbalance_strategy", strategy)
         mlflow.log_params(model_params)
         mlflow.log_param("dataset_shape", X_train_processed.shape)
         mlflow.log_param("n_features", len(feature_names))

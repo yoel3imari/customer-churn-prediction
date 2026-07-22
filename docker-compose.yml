@@ -29,6 +29,8 @@ services:
       --registry-store-uri postgresql://mlflow:${MLFLOW_PG_PASSWORD:-mlflow}@postgres:5432/mlflow
     ports:
       - "5005:5005"
+    environment:
+      MLFLOW_SERVER_ALLOWED_HOSTS: "*"
     volumes:
       - mlflow_artifacts:/mlflow/artifacts
     depends_on:
@@ -44,7 +46,7 @@ services:
       - /app/.venv  # don't shadow the image's .venv with host's
       - mlflow_artifacts:/mlflow/artifacts
     environment:
-      MLFLOW_TRACKING_URI: postgresql://mlflow:${MLFLOW_PG_PASSWORD:-mlflow}@postgres:5432/mlflow
+      MLFLOW_TRACKING_URI: http://mlflow:5005
       PYTHONPATH: /app
     profiles:
       - manual

@@ -240,7 +240,7 @@ TARGET_CHURN_RATE: float = 0.29  # ≈ observed in full dataset
 # MLflow tracking (overridable via env var)
 MLFLOW_TRACKING_URI: str = os.getenv(
     "MLFLOW_TRACKING_URI",
-    "postgresql://mlflow:mlflow@localhost:5435/mlflow",
+    "http://localhost:5005",
 )
 MLFLOW_EXPERIMENT_NAME: str = "churn-prediction"
 MLFLOW_REGISTRY_NAME: str = "ChurnPredictor"
@@ -250,8 +250,6 @@ ALGORITHMS: list[dict] = [
     {"name": "LogisticRegression",     "class": "sklearn.linear_model.LogisticRegression",     "is_sklearn": True},
     {"name": "RandomForest",           "class": "sklearn.ensemble.RandomForestClassifier",     "is_sklearn": True},
     {"name": "XGBoost",                "class": "xgboost.XGBClassifier",                       "is_sklearn": False},
-    {"name": "LightGBM",               "class": "lightgbm.LGBMClassifier",                     "is_sklearn": False},
-    {"name": "CatBoost",               "class": "catboost.CatBoostClassifier",                 "is_sklearn": False},
 ]
 
 # Imbalance strategies

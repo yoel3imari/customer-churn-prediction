@@ -135,16 +135,11 @@ def tune_model(
         y_val=y_val,
     )
 
-    mlflow_callback = MLflowCallback(
-        tracking_uri=MLFLOW_TRACKING_URI,
-        experiment_name=MLFLOW_EXPERIMENT_NAME,
-    )
-
     print(f"    Tuning {algorithm} with {n_trials} Optuna trials...")
     tune_start = time.time()
 
     with mlflow.start_run(run_name=study.study_name):
-        study.optimize(objective, n_trials=n_trials, callbacks=[mlflow_callback])
+        study.optimize(objective, n_trials=n_trials)
 
         mlflow.log_params({f"best_{k}": v for k, v in study.best_params.items()})
         mlflow.log_metric("best_pr_auc", float(study.best_value))

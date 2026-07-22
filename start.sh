@@ -21,6 +21,7 @@ MLFLOW_PG_PASSWORD="${MLFLOW_PG_PASSWORD:-mlflow}"
 APP_IMAGE="churn-prediction-app:latest"
 APP_NETWORK="churn-prediction_default"
 APP_PG_HOST="churn-prediction-postgres-1"
+APP_MLFLOW_HOST="churn-prediction-mlflow-1"
 APP_VOLUME_MLFLOW="churn-prediction_mlflow_artifacts"
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
@@ -40,7 +41,7 @@ Commands:
   build              Build the app Docker image (after dep changes)
   train              Run full training pipeline (all algorithms x strategies)
   tune <algo>        Tune hyperparameters for a specific algorithm
-                     algos: LogisticRegression, RandomForest, XGBoost, LightGBM, CatBoost
+                     algos: LogisticRegression, RandomForest, XGBoost
   shell              Open Python shell with project imports loaded
   pytest [args]      Run tests (passes args through to pytest)
   jupyter            Start Jupyter notebook server
@@ -68,11 +69,12 @@ run_app() {
     # Mount only I/O directories, not the full project (Colima bind mount
     # hangs on large trees like .venv via gRPC FUSE).
     docker run --rm \
+        -v "$SCRIPT_DIR/src:/app/src" \
         -v "$SCRIPT_DIR/data:/app/data" \
         -v "$SCRIPT_DIR/models:/app/models" \
         -v "$SCRIPT_DIR/reports:/app/reports" \
         -v "$APP_VOLUME_MLFLOW:/mlflow/artifacts" \
-        -e MLFLOW_TRACKING_URI="postgresql://mlflow:${MLFLOW_PG_PASSWORD}@${APP_PG_HOST}:5432/mlflow" \
+        -e MLFLOW_TRACKING_URI="http://${APP_MLFLOW_HOST}:5005" \
         -e PYTHONPATH=/app \
         -e GIT_PYTHON_REFRESH=quiet \
         --network "$APP_NETWORK" \
@@ -96,6 +98,7 @@ cmd_infra() {
     done
     ok "Postgres is ready on port 5432"
     ok "MLflow UI at http://localhost:5005"
+    docker run --rm -v "$APP_VOLUME_MLFLOW:/mlflow/artifacts" --user root "$APP_IMAGE" chmod 777 /mlflow/artifacts 2>/dev/null || true
 }
 
 cmd_build() {
@@ -159,15 +162,19 @@ code.interact(local=locals())
 }
 
 cmd_pytest() {
-    info "Running tests in Docker container (no external infra required)..."
+    info "Running tests in Docker container..."
     docker run --rm \
+        -v "$SCRIPT_DIR/src:/app/src" \
+        -v "$SCRIPT_DIR/tests:/app/tests" \
         -v "$SCRIPT_DIR/data:/app/data" \
         -v "$SCRIPT_DIR/models:/app/models" \
         -v "$SCRIPT_DIR/reports:/app/reports" \
+        -v "$APP_VOLUME_MLFLOW:/mlflow/artifacts" \
+        -e MLFLOW_TRACKING_URI="http://${APP_MLFLOW_HOST}:5005" \
         -e PYTHONPATH=/app \
         --network "$APP_NETWORK" \
         "$APP_IMAGE" \
-        pytest "$@"
+        /app/.venv/bin/pytest "$@"
 }
 
 cmd_jupyter() {
@@ -178,7 +185,8 @@ cmd_jupyter() {
         -v "$SCRIPT_DIR/models:/app/models" \
         -v "$SCRIPT_DIR/reports:/app/reports" \
         -v "$SCRIPT_DIR/notebooks:/app/notebooks" \
-        -e MLFLOW_TRACKING_URI="postgresql://mlflow:${MLFLOW_PG_PASSWORD}@${APP_PG_HOST}:5432/mlflow" \
+        -v "$APP_VOLUME_MLFLOW:/mlflow/artifacts" \
+        -e MLFLOW_TRACKING_URI="http://${APP_MLFLOW_HOST}:5005" \
         -e PYTHONPATH=/app \
         --network "$APP_NETWORK" \
         "$APP_IMAGE" \

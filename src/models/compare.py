@@ -35,15 +35,19 @@ def fetch_experiment_runs(experiment_name: str | None = None) -> list[dict]:
 
 
 def _build_comparison_df(runs: list[dict]) -> pd.DataFrame:
+    valid_algos = {a["name"] for a in config.ALGORITHMS}
     rows: list[dict] = []
     for r in runs:
         params = r.get("params", {})
         metrics = r.get("metrics", {})
+        algo = params.get("model_algorithm") or params.get("algorithm")
+        if algo not in valid_algos:
+            continue
         rows.append(
             {
                 "run_id": r.get("run_id"),
-                "algorithm": params.get("algorithm"),
-                "strategy": params.get("strategy"),
+                "algorithm": algo,
+                "strategy": params.get("imbalance_strategy") or params.get("strategy"),
                 "roc_auc": metrics.get("roc_auc"),
                 "pr_auc": metrics.get("pr_auc"),
                 "f1": metrics.get("f1"),
@@ -66,9 +70,9 @@ def compare_runs(experiment_name: str | None = None) -> pd.DataFrame:
 def select_best_run(runs: list[dict] | None = None, metric: str = "pr_auc") -> str:
     if runs is None:
         runs = fetch_experiment_runs()
-    if not runs:
-        raise ValueError("No runs available to select the best run.")
     df = _build_comparison_df(runs)
+    if df.empty:
+        raise RuntimeError("No successful runs available to select the best run.")
     if metric not in df.columns:
         raise ValueError(f"Metric '{metric}' not found in run data.")
     df = df.sort_values(metric, ascending=False)
@@ -120,6 +124,7 @@ def run_full_comparison(dataset_df: pd.DataFrame) -> dict:
     print(f"{'='*60}\n")
 
     for algorithm in config.ALGORITHMS:
+        print("=" * 10, algorithm.get("name", "Algorithm"), "=" * 10)
         for strategy in config.IMBALANCE_STRATEGIES:
             run_count += 1
             algo_name = algorithm["name"]
@@ -131,17 +136,20 @@ def run_full_comparison(dataset_df: pd.DataFrame) -> dict:
                 f"...  ", end="", flush=True
             )
 
-            result = train_model(
-                X_train=X_train, y_train=y_train,
-                X_val=X_test, y_val=y_test,
-                algorithm=algo_name, strategy=strategy,
-                run_name=f"{algo_name}_{strategy}",
-            )
-            metrics = result["metrics"]
-
-            elapsed = time.time() - iter_start
-            pr_auc = metrics.get("pr_auc", 0)
-            print(f"done  ({elapsed:6.1f}s)  PR-AUC: {pr_auc:.4f}")
+            try:
+                result = train_model(
+                    X_train=X_train, y_train=y_train,
+                    X_val=X_test, y_val=y_test,
+                    algorithm=algo_name, strategy=strategy,
+                    run_name=f"{algo_name}_{strategy}",
+                )
+                metrics = result["metrics"]
+                elapsed = time.time() - iter_start
+                pr_auc = metrics.get("pr_auc", 0)
+                print(f"done  ({elapsed:6.1f}s)  PR-AUC: {pr_auc:.4f}")
+            except Exception as exc:
+                elapsed = time.time() - iter_start
+                print(f"FAILED ({elapsed:6.1f}s)  Error: {exc}")
 
     total_elapsed = time.time() - overall_start
     print(f"\n{'='*60}")
@@ -187,6 +195,11 @@ def run_full_comparison(dataset_df: pd.DataFrame) -> dict:
 
     final_train_elapsed = time.time() - final_train_start
     promote_to_production(final_run_id)
+
+    import joblib
+    config.Paths.MODELS.mkdir(parents=True, exist_ok=True)
+    joblib.dump(final_result["model"], config.Paths.MODELS / "model.joblib")
+    joblib.dump(final_result["preprocessor"], config.Paths.MODELS / "preprocessing_pipeline.joblib")
 
     client = MlflowClient(tracking_uri=config.MLFLOW_TRACKING_URI)
     versions = client.search_model_versions(f"run_id = '{final_run_id}'")

@@ -9,8 +9,8 @@ WORKDIR /app
 
 COPY pyproject.toml uv.lock ./
 
-# --no-dev + --no-install-project: install deps only, skip dev/test packages
-RUN uv sync --frozen --no-dev --no-install-project
+# Install deps including dev/test packages
+RUN uv sync --frozen --no-install-project
 
 # =============================================================================
 # Stage 2: Runtime - Minimal final image
@@ -24,6 +24,7 @@ WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq5 \
+    libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /app/.venv /app/.venv
