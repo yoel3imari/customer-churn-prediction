@@ -47,6 +47,50 @@ def _is_tree_model(model: Any) -> bool:
     return any(hint in haystack for hint in _TREE_MODEL_HINTS)
 
 
+def find_optimal_threshold(
+    y_true: np.ndarray,
+    y_proba: np.ndarray,
+    metric: str = "f1",
+    fn_cost: float = 10.0,
+    fp_cost: float = 1.0,
+) -> dict[str, float]:
+    """Find decision threshold maximizing F1 or minimizing cost ($C_{FN} * FN + C_{FP} * FP$)."""
+    y_true = np.asarray(y_true)
+    y_proba = np.asarray(y_proba)
+
+    thresholds = np.linspace(0.05, 0.95, 91)
+    best_thresh = 0.5
+    best_val = -1.0 if metric == "f1" else float("inf")
+    best_metrics: dict[str, float] = {}
+
+    for t in thresholds:
+        preds = (y_proba >= t).astype(int)
+        p = float(precision_score(y_true, preds, zero_division=0))
+        r = float(recall_score(y_true, preds, zero_division=0))
+        f1 = float(f1_score(y_true, preds, zero_division=0))
+
+        if metric == "f1":
+            if f1 > best_val:
+                best_val = f1
+                best_thresh = float(t)
+                best_metrics = {"f1": f1, "precision": p, "recall": r}
+        elif metric == "cost":
+            cm = confusion_matrix(y_true, preds)
+            fn = int(cm[1, 0]) if cm.shape == (2, 2) else 0
+            fp = int(cm[0, 1]) if cm.shape == (2, 2) else 0
+            cost = float(fn * fn_cost + fp * fp_cost)
+            if cost < best_val:
+                best_val = cost
+                best_thresh = float(t)
+                best_metrics = {"cost": cost, "f1": f1, "precision": p, "recall": r}
+
+    return {
+        "optimal_threshold": best_thresh,
+        "best_score": best_val,
+        **best_metrics,
+    }
+
+
 def compute_metrics(
     y_true: np.ndarray,
     y_pred: np.ndarray,
@@ -64,6 +108,10 @@ def compute_metrics(
         "f1": None,
         "precision": None,
         "recall": None,
+        "optimal_threshold_f1": 0.5,
+        "optimal_f1": None,
+        "optimal_threshold_cost": 0.5,
+        "optimal_cost": None,
         "confusion_matrix": confusion_matrix(y_true, y_pred).tolist(),
     }
 
@@ -83,6 +131,14 @@ def compute_metrics(
                 metrics["pr_auc"] = float(average_precision_score(y_true, y_proba))
             except ValueError:
                 metrics["pr_auc"] = None
+
+            opt_f1 = find_optimal_threshold(y_true, y_proba, metric="f1")
+            metrics["optimal_threshold_f1"] = opt_f1["optimal_threshold"]
+            metrics["optimal_f1"] = opt_f1["best_score"]
+
+            opt_cost = find_optimal_threshold(y_true, y_proba, metric="cost")
+            metrics["optimal_threshold_cost"] = opt_cost["optimal_threshold"]
+            metrics["optimal_cost"] = opt_cost["best_score"]
     else:
         metrics["f1"] = float(f1_score(y_true, y_pred, zero_division=0))
         metrics["precision"] = float(

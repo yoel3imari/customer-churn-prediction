@@ -1,5 +1,5 @@
 # =============================================================================
-# Stage 1: Builder - Install dependencies with uv
+# Stage 1: Builder - Install all dependencies with uv (including dev/test)
 # =============================================================================
 FROM python:3.12-slim AS builder
 
@@ -9,11 +9,18 @@ WORKDIR /app
 
 COPY pyproject.toml uv.lock ./
 
-# Install deps including dev/test packages
+# Install full dependencies (including dev tools for dev/test containers)
 RUN uv sync --frozen --no-install-project
 
 # =============================================================================
-# Stage 2: Runtime - Minimal final image
+# Stage 1b: Production Builder - Install runtime-only dependencies
+# =============================================================================
+FROM builder AS production-builder
+
+RUN uv sync --frozen --no-install-project --no-dev
+
+# =============================================================================
+# Stage 2: Runtime - Full dev/test/pipeline runtime image
 # =============================================================================
 FROM python:3.12-slim AS runtime
 
@@ -25,13 +32,17 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq5 \
     libgomp1 \
-    && rm -rf /var/lib/apt/lists/*
+    curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p /app/data /app/models /app/reports /app/src /mlflow/artifacts \
+    && chown -R appuser:appuser /app /mlflow/artifacts
 
 COPY --from=builder /app/.venv /app/.venv
 
 COPY src/ ./src/
+COPY dashboard/ ./dashboard/
 COPY start.sh ./
-RUN chmod +x start.sh
+RUN chmod +x start.sh && chown appuser:appuser start.sh
 
 ENV PATH="/app/.venv/bin:$PATH"
 ENV PYTHONPATH=/app
@@ -46,3 +57,11 @@ USER appuser
 EXPOSE 8000
 
 CMD ["uvicorn", "src.api.app:app", "--host", "0.0.0.0", "--port", "8000"]
+
+# =============================================================================
+# Stage 3: Production - Lean final runtime image (no dev dependencies)
+# =============================================================================
+FROM runtime AS production
+
+COPY --from=production-builder /app/.venv /app/.venv
+

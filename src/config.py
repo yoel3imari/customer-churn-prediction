@@ -94,6 +94,22 @@ class Columns:
         "setprc",
     ]
 
+    ENGINEERED_CONTINUOUS: ClassVar[list[str]] = [
+        "revenue_per_mou",
+        "drop_call_rate",
+        "outcall_ratio",
+        "support_contact_rate",
+        "revenue_x_tenure",
+        "mou_x_eqpdays",
+        "overage_ratio",
+        "call_failure_rate",
+        "revenue_per_month",
+        "avg_call_duration",
+    ]
+
+    ALL_CONTINUOUS: ClassVar[list[str]] = CONTINUOUS + ENGINEERED_CONTINUOUS
+
+
     # ── Binary / categorical flags ──
     BINARY_FEATURES: ClassVar[list[str]] = [
         "refurb",
@@ -250,6 +266,8 @@ ALGORITHMS: list[dict] = [
     {"name": "LogisticRegression",     "class": "sklearn.linear_model.LogisticRegression",     "is_sklearn": True},
     {"name": "RandomForest",           "class": "sklearn.ensemble.RandomForestClassifier",     "is_sklearn": True},
     {"name": "XGBoost",                "class": "xgboost.XGBClassifier",                       "is_sklearn": False},
+    {"name": "LightGBM",               "class": "lightgbm.LGBMClassifier",                     "is_sklearn": False},
+    {"name": "CatBoost",               "class": "catboost.CatBoostClassifier",                 "is_sklearn": False},
 ]
 
 # Imbalance strategies
@@ -293,3 +311,82 @@ AGE_LABELS: list[str] = [
     "55-64",
     "65+",
 ]
+
+
+from functools import lru_cache
+
+
+@lru_cache(maxsize=1)
+def get_feature_defaults() -> dict[str, float]:
+    """Return dictionary of default mean values for all feature columns."""
+    if Paths.DATA_RAW.exists():
+        try:
+            df = pd.read_csv(Paths.DATA_RAW)
+            numeric_cols = df.select_dtypes(include=["number"]).columns
+            means = df[numeric_cols].mean().to_dict()
+            return {k: (float(v) if not np.isnan(v) else 0.0) for k, v in means.items()}
+        except Exception:
+            pass
+
+    return {
+        "revenue": 58.85,
+        "mou": 525.73,
+        "recchrge": 46.88,
+        "directas": 0.89,
+        "overage": 40.02,
+        "roam": 1.22,
+        "changem": -13.93,
+        "changer": -1.21,
+        "dropvce": 6.01,
+        "blckvce": 4.17,
+        "unansvce": 27.81,
+        "custcare": 1.79,
+        "threeway": 0.29,
+        "mourec": 113.88,
+        "outcalls": 25.07,
+        "incalls": 8.01,
+        "peakvce": 89.97,
+        "opeakvce": 67.24,
+        "dropblk": 10.18,
+        "callfwdv": 0.01,
+        "callwait": 1.84,
+        "months": 18.84,
+        "uniqsubs": 1.54,
+        "actvsubs": 1.35,
+        "phones": 1.79,
+        "models": 1.55,
+        "eqpdays": 380.24,
+        "age1": 31.32,
+        "age2": 8.11,
+        "children": 0.24,
+        "credita": 0.13,
+        "creditaa": 0.39,
+        "creditcd": 0.67,
+        "prizmrur": 0.08,
+        "prizmub": 0.31,
+        "prizmtwn": 0.15,
+        "refurb": 0.13,
+        "webcap": 0.89,
+        "truck": 0.19,
+        "rv": 0.08,
+        "ownrent": 0.11,
+        "marryun": 0.34,
+        "marryyes": 0.36,
+        "mailord": 0.36,
+        "mailres": 0.36,
+        "mailflag": 0.02,
+        "travel": 0.06,
+        "pcown": 0.18,
+        "retcalls": 0.04,
+        "retaccpt": 0.01,
+        "newcelly": 0.19,
+        "newcelln": 0.14,
+        "refer": 0.05,
+        "incmiss": 0.27,
+        "income": 4.33,
+        "mcycle": 0.01,
+        "setprcm": 0.01,
+        "setprc": 35.12,
+        "retcall": 0.04,
+    }
+

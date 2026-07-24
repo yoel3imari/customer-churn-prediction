@@ -43,9 +43,24 @@ class ChurnPredictor:
         if model_uri and str(model_uri).endswith(".joblib"):
             self._load_from_joblib(model_uri)
         else:
-            self._load_from_mlflow(model_uri, stage)
+            try:
+                self._load_from_mlflow(model_uri, stage)
+            except Exception as exc:
+                from src.config import Paths
+
+                fallback = Paths.MODELS / "model.joblib"
+                if not fallback.exists():
+                    fallback = Paths.MODELS / "best_model.joblib"
+
+                if fallback.exists():
+                    self._load_from_joblib(str(fallback))
+                else:
+                    raise RuntimeError(
+                        f"Could not load model from MLflow stage '{stage}' ({exc}) and no fallback found at {fallback}"
+                    ) from exc
 
         self.feature_names: list[str] = self._resolve_feature_names()
+
 
     def _load_from_joblib(self, model_uri: str) -> None:
         model_path = Path(model_uri)
@@ -108,9 +123,27 @@ class ChurnPredictor:
         return list(Columns.ALL_FEATURES)
 
     def _transform(self, features: pd.DataFrame) -> np.ndarray:
+        from src.config import get_feature_defaults
+        defaults = get_feature_defaults()
+
+        required_cols = list(Columns.ALL_FEATURES)
+        if Columns.SPLIT_FLAG not in required_cols:
+            required_cols.append(Columns.SPLIT_FLAG)
+
+        df_aligned = pd.DataFrame(index=features.index)
+        for col in required_cols:
+            if col in features.columns and not pd.isna(features[col].iloc[0]):
+                df_aligned[col] = features[col]
+            else:
+                default_val = defaults.get(col, 0.0)
+                df_aligned[col] = default_val
+
         if self.pipeline is not None:
-            return np.asarray(self.pipeline.transform(features))
-        return features.to_numpy()
+            return np.asarray(self.pipeline.transform(df_aligned))
+        return df_aligned.to_numpy()
+
+
+
 
     def predict(self, features: pd.DataFrame) -> np.ndarray:
         X = self._transform(features)

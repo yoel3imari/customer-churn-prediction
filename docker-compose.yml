@@ -36,6 +36,11 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:5005/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
 
   app:
     build:
@@ -51,6 +56,36 @@ services:
     profiles:
       - manual
 
+  dashboard:
+    build:
+      context: .
+      target: runtime
+    command: streamlit run dashboard/app.py --server.port 8501 --server.address 0.0.0.0
+    ports:
+      - "8501:8501"
+    environment:
+      API_BASE_URL: http://app:8000/api/v1
+      MLFLOW_TRACKING_URI: http://mlflow:5005
+      PYTHONPATH: /app
+    volumes:
+      - ./dashboard:/app/dashboard
+      - ./reports:/app/reports
+    depends_on:
+      - app
+    profiles:
+      - manual
+
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    profiles:
+      - manual
+
 volumes:
   postgres_data:
   mlflow_artifacts:
+
+

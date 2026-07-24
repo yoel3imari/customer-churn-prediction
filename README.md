@@ -17,8 +17,10 @@ End-to-end machine learning project for predicting customer churn using the **Ce
 | **API** | FastAPI + Pydantic v2 | Real-time inference with auto-docs |
 | **Dashboard** | Streamlit | Interactive what-if simulator, batch upload |
 | **Imbalance handling** | imbalanced-learn (SMOTE) | Synthetic oversampling + class weighting |
-| **Containerization** | Docker Compose | Reproducible multi-service deployment (Postgres + MLflow + API) |
-| **CI/CD** | GitHub Actions | Automated testing and image publishing |
+| **Observability** | Prometheus, `structlog` | Real-time telemetry (/metrics), structured JSON logs |
+| **Data Drift** | SciPy (KS-test, $\chi^2$) | Feature data drift detection engine (/monitoring/drift) |
+| **Containerization** | Docker Compose | Reproducible multi-service deployment (Postgres + MLflow + API + Dashboard) |
+| **CI/CD** | GitHub Actions | Automated testing, Docker build checks, and image publishing |
 
 ## Project Structure
 
@@ -54,6 +56,10 @@ customer-churn-prediction/
 │   │   ├── evaluate.py    # Metrics, plots, SHAP explanations
 │   │   ├── compare.py     # Run comparison and model promotion
 │   │   └── predict.py     # ChurnPredictor inference wrapper
+│   ├── monitoring/
+│   │   ├── logging.py     # Structured JSON logging (structlog)
+│   │   ├── metrics.py     # Prometheus counters & histograms
+│   │   └── drift.py       # Kolmogorov-Smirnov & Chi-Square data drift detector
 │   └── api/
 │       ├── app.py         # FastAPI application
 │       ├── schemas.py     # Pydantic request/response models
@@ -63,7 +69,8 @@ customer-churn-prediction/
 │   ├── test_load.py       # Data loading tests
 │   ├── test_clean.py      # Data cleaning tests
 │   ├── test_build.py      # Feature engineering tests
-│   └── test_pipeline.py   # Pipeline integration tests
+│   ├── test_pipeline.py   # Pipeline integration tests
+│   └── test_monitoring.py # Observability & data drift tests
 ├── docker-compose.yml     # Multi-service Docker setup
 ├── Dockerfile             # App container definition
 ├── Dockerfile.mlflow      # MLflow with Postgres driver
@@ -164,8 +171,10 @@ uv run python -m src.main compare
 |--------|----------|-------------|
 | GET | `/api/v1/health` | Health check |
 | GET | `/api/v1/model/info` | Model metadata, metrics, features |
+| GET | `/metrics` | Prometheus metrics telemetry |
 | POST | `/api/v1/predict` | Single prediction (optional SHAP) |
 | POST | `/api/v1/predict/batch` | CSV upload → batch predictions |
+| POST | `/api/v1/monitoring/drift` | CSV feature data drift report |
 
 ### Example: Single Prediction
 
@@ -185,6 +194,21 @@ curl -X POST http://localhost:8000/api/v1/predict \
 | **Ratios** | `revenue_per_mou`, `outcall_ratio`, `drop_call_rate`, `support_contact_rate` |
 | **Binning** | `tenure_group` (0-6mo, 6-12mo, 1-2yr, 2-4yr, 4-6yr, 6yr+), `age_group` |
 | **Business flags** | `is_high_value` (top 10% revenue), `is_low_tenure_high_value`, `is_frequent_drops` |
+
+## Key Business & EDA Insights
+
+Exploratory Data Analysis ([01-eda.ipynb](file:///Users/yusef/projects/portfolio/customer-churn-prediction/notebooks/01-eda.ipynb)) on the ~71,000 Cell2Cell dataset answered these core business questions:
+
+| Business Question | EDA Finding | Key Signal / Feature |
+| :--- | :--- | :--- |
+| **Which age groups churn the most?** | Younger segments (`<25` and `25–34`) exhibit the highest churn rates; `55+` accounts show higher retention. | `age1` (Age groups) |
+| **Does tenure reduce churn?** | **Yes.** Tenure is the #1 numerical predictor. Highest churn risk occurs during the first 0–12 months of service. | `months` (Tenure months) |
+| **Do dropped calls increase churn?** | **Yes.** Call quality failures strongly drive churn due to network quality frustration. | `dropvce`, `drop_call_rate` |
+| **Does monthly revenue correlate with retention?** | **Yes**, but unexpected overage charges create "bill shock" churn despite high recurring spend. | `revenue`, `overage` |
+| **Which service areas churn most?** | Urban (`prizmub`) and Rural (`prizmrur`) accounts churn at higher rates than Suburban (`prizmtwn`) areas. | `prizm*` geography flags |
+| **Does customer support usage predict churn?** | **Yes.** Retention and support calls are top 3 churn signals—high contact intensity indicates discontent or save attempts. | `retcalls`, `custcare` |
+| **Do usage drops indicate churn?** | **Yes.** Sharp declines in monthly minutes (`changem`) or revenue (`changer`) strongly precede customer departure. | `changem`, `changer` |
+
 
 ## Modeling Strategy
 
@@ -236,6 +260,7 @@ curl -X POST http://localhost:8000/api/v1/predict \
 | Postgres | postgres:16-alpine | 5435 |
 | MLflow | Custom (with psycopg2) | 5005 |
 | App | Custom (via Dockerfile) | 8000 |
+| Dashboard | Custom (via Streamlit) | 8501 |
 
 ## Dataset: Cell2Cell
 
@@ -247,4 +272,4 @@ curl -X POST http://localhost:8000/api/v1/predict \
 ## License
 
 MIT
-# customer-churn-prediction
+

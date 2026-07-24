@@ -5,6 +5,9 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from prometheus_fastapi_instrumentator import Instrumentator
+
+from src.monitoring import configure_logging
 
 from .router import _get_predictor, router
 
@@ -13,7 +16,8 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Warm up the model on startup so the first request isn't slow."""
+    """Warm up the model and setup observability on startup."""
+    configure_logging(log_level="INFO", json_format=True)
     try:
         _get_predictor()
         logger.info("ChurnPredictor loaded and cached on startup")
@@ -30,7 +34,7 @@ def create_app() -> FastAPI:
     """Build and configure the FastAPI application."""
     app = FastAPI(
         title="Churn Prediction API",
-        description="Real-time customer churn inference with optional SHAP explainability",
+        description="Real-time customer churn inference with optional SHAP explainability and observability",
         version="0.1.0",
         lifespan=lifespan,
     )
@@ -43,9 +47,13 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
+    # Expose Prometheus metrics endpoint at /metrics
+    Instrumentator().instrument(app).expose(app)
+
     app.include_router(router, prefix="/api/v1")
 
     return app
 
 
 app = create_app()
+

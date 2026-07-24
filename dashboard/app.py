@@ -216,10 +216,21 @@ def page_what_if() -> None:
             shap_vals = result.get("shap_values")
             if shap_vals:
                 st.subheader("SHAP Feature Attribution")
-                shap_df = pd.DataFrame(
-                    {"feature": list(features.keys()), "shap_value": shap_vals}
-                ).sort_values("shap_value", key=abs, ascending=False)
+                info = api_model_info()
+                feat_names = info.get("feature_names", list(features.keys()))
+                if len(shap_vals) == len(feat_names):
+                    shap_df = pd.DataFrame(
+                        {"feature": feat_names, "shap_value": shap_vals}
+                    )
+                    shap_df = shap_df[shap_df["feature"].isin(features.keys()) | (shap_df["shap_value"].abs() > 0.001)]
+                    shap_df = shap_df.sort_values("shap_value", key=abs, ascending=False).head(12)
+                else:
+                    min_len = min(len(shap_vals), len(features))
+                    shap_df = pd.DataFrame(
+                        {"feature": list(features.keys())[:min_len], "shap_value": shap_vals[:min_len]}
+                    ).sort_values("shap_value", key=abs, ascending=False)
                 st.bar_chart(shap_df.set_index("feature"))
+
 
 
 # ═══════════════════════════════════════════════════════════════════════════

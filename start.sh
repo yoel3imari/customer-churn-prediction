@@ -45,6 +45,8 @@ Commands:
   shell              Open Python shell with project imports loaded
   pytest [args]      Run tests (passes args through to pytest)
   jupyter            Start Jupyter notebook server
+  dashboard          Start Streamlit dashboard server
+  prometheus         Start Prometheus UI server
   help               Show this message
 
 Examples:
@@ -53,6 +55,8 @@ Examples:
   ./start.sh tune XGBoost             # tune XGBoost with Optuna
   ./start.sh pytest tests/ -v         # run tests verbosely
   ./start.sh jupyter                  # launch Jupyter
+  ./start.sh dashboard                # launch Streamlit dashboard
+  ./start.sh prometheus               # launch Prometheus UI
 EOF
     exit 0
 }
@@ -98,7 +102,6 @@ cmd_infra() {
     done
     ok "Postgres is ready on port 5432"
     ok "MLflow UI at http://localhost:5005"
-    docker run --rm -v "$APP_VOLUME_MLFLOW:/mlflow/artifacts" --user root "$APP_IMAGE" chmod 777 /mlflow/artifacts 2>/dev/null || true
 }
 
 cmd_build() {
@@ -193,14 +196,39 @@ cmd_jupyter() {
         jupyter notebook --ip=0.0.0.0 --port=8888 --no-browser --allow-root
 }
 
+cmd_dashboard() {
+    require_infra
+    info "Starting Streamlit Dashboard on port 8501..."
+    docker run --rm -p 8501:8501 \
+        -v "$SCRIPT_DIR/dashboard:/app/dashboard" \
+        -v "$SCRIPT_DIR/reports:/app/reports" \
+        -e API_BASE_URL="${API_BASE_URL:-http://localhost:8000/api/v1}" \
+        -e MLFLOW_TRACKING_URI="http://${APP_MLFLOW_HOST}:5005" \
+        -e PYTHONPATH=/app \
+
+        --network "$APP_NETWORK" \
+        "$APP_IMAGE" \
+        streamlit run dashboard/app.py --server.port 8501 --server.address 0.0.0.0
+}
+
+cmd_prometheus() {
+    require_infra
+    info "Starting Prometheus UI on port 9090..."
+    $COMPOSE_MANUAL up -d prometheus
+    ok "Prometheus UI available at http://localhost:9090"
+}
+
 case "${1:-help}" in
-    infra)   shift 0; cmd_infra ;;
-    build)   shift 0; cmd_build ;;
-    train)   shift 0; cmd_train ;;
-    tune)    shift 1; cmd_tune "$@" ;;
-    shell)   shift 0; cmd_shell ;;
-    pytest)  shift 1; cmd_pytest "$@" ;;
-    jupyter) shift 0; cmd_jupyter ;;
+    infra)      shift 0; cmd_infra ;;
+    build)      shift 0; cmd_build ;;
+    train)      shift 0; cmd_train ;;
+    tune)       shift 1; cmd_tune "$@" ;;
+    shell)      shift 0; cmd_shell ;;
+    pytest)     shift 1; cmd_pytest "$@" ;;
+    jupyter)    shift 0; cmd_jupyter ;;
+    dashboard)  shift 0; cmd_dashboard ;;
+    prometheus) shift 0; cmd_prometheus ;;
     help|--help|-h) usage ;;
-    *)       err "Unknown command: $1"; echo; usage ;;
+    *)          err "Unknown command: $1"; echo; usage ;;
 esac
+

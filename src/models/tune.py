@@ -7,13 +7,11 @@ from typing import Any, Callable
 
 import mlflow
 import optuna
-from optuna.integration import MLflowCallback
 
 from src.config import (
     ALGORITHMS,
     MLFLOW_EXPERIMENT_NAME,
-    MLFLOW_TRACKING_URI,
-    RANDOM_STATE,
+    MLFLOW_TRACKING_URI
 )
 from src.models.train import train_model
 
@@ -47,13 +45,18 @@ def get_param_space(algorithm: str, trial: optuna.Trial) -> dict:
 
     if algorithm == "XGBoost":
         return {
-            "n_estimators": trial.suggest_int("n_estimators", 50, 500),
+            "n_estimators": trial.suggest_int("n_estimators", 100, 600),
             "max_depth": trial.suggest_int("max_depth", 3, 15),
             "learning_rate": trial.suggest_float("learning_rate", 1e-3, 0.3, log=True),
             "subsample": trial.suggest_float("subsample", 0.5, 1.0),
             "colsample_bytree": trial.suggest_float("colsample_bytree", 0.5, 1.0),
             "min_child_weight": trial.suggest_int("min_child_weight", 1, 10),
             "gamma": trial.suggest_float("gamma", 0.0, 5.0),
+            "reg_alpha": trial.suggest_float("reg_alpha", 1e-8, 10.0, log=True),
+            "reg_lambda": trial.suggest_float("reg_lambda", 1e-8, 10.0, log=True),
+            "scale_pos_weight": trial.suggest_float("scale_pos_weight", 0.5, 5.0),
+            "early_stopping_rounds": 30,
+            "eval_metric": "aucpr",
         }
 
     if algorithm == "LightGBM":

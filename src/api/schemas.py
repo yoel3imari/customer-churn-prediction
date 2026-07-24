@@ -79,3 +79,23 @@ class HealthResponse(BaseModel):
     timestamp: datetime = Field(
         ..., description="UTC timestamp of the health check"
     )
+
+
+class FeatureDriftDetail(BaseModel):
+    """Drift metrics for an individual feature."""
+
+    drift_detected: bool = Field(..., description="True if feature has drifted beyond alpha threshold")
+    p_value: float = Field(..., description="P-value from statistical test")
+    statistic: float = Field(..., description="Test statistic value")
+    test_name: str = Field(..., description="Name of statistical test used (KS-test or Chi-square)")
+
+
+class DriftReportResponse(BaseModel):
+    """Summary report of dataset feature drift."""
+
+    dataset_drift_detected: bool = Field(..., description="True if >= 30% features show drift")
+    drift_share: float = Field(..., description="Fraction of features drifted [0.0, 1.0]")
+    number_of_drifted_features: int = Field(..., description="Count of drifted features")
+    number_of_features: int = Field(..., description="Total features analyzed")
+    features: dict[str, FeatureDriftDetail] = Field(..., description="Per-feature drift details")
+

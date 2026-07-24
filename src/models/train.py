@@ -11,6 +11,7 @@ from typing import Any, Optional
 import joblib
 import mlflow
 import numpy as np
+import pandas as pd
 
 from sklearn.metrics import (
     average_precision_score,
@@ -31,6 +32,7 @@ from src.features.pipeline import (
     create_preprocessing_pipeline,
     get_feature_names,
 )
+from src.models.evaluate import compute_metrics
 
 
 def resolve_class(algorithm_name: str) -> tuple:
@@ -46,13 +48,14 @@ def resolve_class(algorithm_name: str) -> tuple:
 def _get_algorithm_default_params(algorithm_name: str, strategy: str, y_train: Optional[Any] = None) -> dict:
     defaults: dict = {}
     if algorithm_name == "LogisticRegression":
-        defaults["max_iter"] = 1000
+        defaults["max_iter"] = 2500
         if strategy == "class_weight":
             defaults["class_weight"] = "balanced"
     elif algorithm_name == "RandomForest":
         if strategy == "class_weight":
             defaults["class_weight"] = "balanced"
     elif algorithm_name == "XGBoost":
+        defaults["eval_metric"] = "aucpr"
         if strategy == "class_weight":
             if y_train is None:
                 defaults["scale_pos_weight"] = 1.0
@@ -62,9 +65,14 @@ def _get_algorithm_default_params(algorithm_name: str, strategy: str, y_train: O
                 weight = (neg / pos) if pos > 0 else 1.0
                 defaults["scale_pos_weight"] = float(weight)
     elif algorithm_name == "LightGBM":
+        defaults["metric"] = "binary_logloss"
+        defaults["verbose"] = -1
         if strategy == "class_weight":
-            defaults["is_unbalance"] = True
+            defaults["class_weight"] = "balanced"
     elif algorithm_name == "CatBoost":
+        defaults["train_dir"] = "/tmp/catboost_info"
+        defaults["eval_metric"] = "PRAUC"
+        defaults["verbose"] = 0
         if strategy == "class_weight":
             defaults["auto_class_weights"] = "Balanced"
     return defaults
@@ -73,22 +81,12 @@ def _get_algorithm_default_params(algorithm_name: str, strategy: str, y_train: O
 def _evaluate(model: Any, X_val: Any, y_val: Any) -> dict:
     y_pred = model.predict(X_val)
     y_proba = model.predict_proba(X_val)[:, 1]
-    return {
-        "roc_auc": float(roc_auc_score(y_val, y_proba)),
-        "pr_auc": float(average_precision_score(y_val, y_proba)),
-        "f1": float(f1_score(y_val, y_pred)),
-        "precision": float(precision_score(y_val, y_pred)),
-        "recall": float(recall_score(y_val, y_pred)),
-    }
+    return compute_metrics(y_val, y_pred, y_proba)
 
 
 def _enable_autolog(algorithm: str, is_sklearn: bool) -> None:
-    if is_sklearn:
-        mlflow.sklearn.autolog(log_models=False, log_datasets=False)
-    elif algorithm == "XGBoost":
-        mlflow.xgboost.autolog(log_models=False, log_datasets=False)
-    elif algorithm == "LightGBM":
-        mlflow.lightgbm.autolog(log_models=False, log_datasets=False)
+    # Explicit manual logging is used to prevent autolog parameter collision errors
+    pass
 
 
 def _register_model(algorithm: str, strategy: str, model: Any) -> None:
@@ -136,14 +134,21 @@ def train_model(
     if algorithm == "CatBoost":
         model_params.setdefault("random_seed", RANDOM_STATE)
         model_params.setdefault("verbose", 0)
+        model_params.setdefault("train_dir", "/tmp/catboost_info")
     else:
         model_params.setdefault("random_state", RANDOM_STATE)
 
     # ── 1. Preprocess: clean → features → scale/OHE ─────────────────────────
     preprocessor = create_preprocessing_pipeline()
-    X_train_processed = preprocessor.fit_transform(X_train)
-    feature_names = get_feature_names(preprocessor)
-    X_val_processed = preprocessor.transform(X_val) if X_val is not None else None
+    feature_names = get_feature_names(preprocessor.fit(X_train))
+    X_train_raw = preprocessor.transform(X_train)
+    X_train_processed = pd.DataFrame(X_train_raw, columns=feature_names)
+
+    if X_val is not None:
+        X_val_raw = preprocessor.transform(X_val)
+        X_val_processed = pd.DataFrame(X_val_raw, columns=feature_names)
+    else:
+        X_val_processed = None
 
     fit_start = time.time()
     print(f"    Model: {algorithm} | Strategy: {strategy} | "
@@ -154,20 +159,28 @@ def train_model(
     with mlflow.start_run(run_name=run_name, nested=True) as run:
         run_id = run.info.run_id
 
+        fit_kwargs: dict[str, Any] = {}
+        if algorithm == "XGBoost" and X_val_processed is not None and y_val is not None:
+            fit_kwargs["eval_set"] = [(X_val_processed, y_val)]
+            fit_kwargs["verbose"] = False
+        elif algorithm == "LightGBM" and X_val_processed is not None and y_val is not None:
+            fit_kwargs["eval_set"] = [(X_val_processed, y_val)]
+        elif algorithm == "CatBoost" and X_val_processed is not None and y_val is not None:
+            fit_kwargs["eval_set"] = (X_val_processed, y_val)
+            fit_kwargs["verbose"] = 0
+
         if strategy == "class_weight":
             model = model_class(**model_params)
-            model.fit(X_train_processed, y_train)
+            model.fit(X_train_processed, y_train, **fit_kwargs)
         elif strategy == "smote":
             from imblearn.over_sampling import SMOTE
-            from imblearn.pipeline import Pipeline as ImbPipeline
 
-            model = ImbPipeline(
-                steps=[
-                    ("smote", SMOTE(random_state=RANDOM_STATE)),
-                    ("classifier", model_class(**model_params)),
-                ]
-            )
-            model.fit(X_train_processed, y_train)
+            smote = SMOTE(random_state=RANDOM_STATE)
+            X_res, y_res = smote.fit_resample(X_train_processed, y_train)
+            X_res_df = pd.DataFrame(X_res, columns=feature_names)
+
+            model = model_class(**model_params)
+            model.fit(X_res_df, y_res, **fit_kwargs)
         else:
             raise ValueError(f"Unknown imbalance strategy: {strategy}")
 
@@ -181,7 +194,12 @@ def train_model(
         metrics: dict = {}
         if X_val_processed is not None and y_val is not None:
             metrics = _evaluate(model, X_val_processed, y_val)
-            mlflow.log_metrics(metrics)
+            scalar_metrics = {
+                k: float(v)
+                for k, v in metrics.items()
+                if v is not None and isinstance(v, (int, float, np.number))
+            }
+            mlflow.log_metrics(scalar_metrics)
 
         # ── 4. Log preprocessing artifact ────────────────────────────────────
         with tempfile.TemporaryDirectory() as tmp:
@@ -198,12 +216,94 @@ def train_model(
         _register_model(algorithm, strategy, model)
 
         fit_elapsed = time.time() - fit_start
-        metric_str = " | ".join(f"{k}={v:.4f}" for k, v in metrics.items())
+        metric_str = " | ".join(
+            f"{k}={v:.4f}"
+            for k, v in metrics.items()
+            if v is not None and isinstance(v, (int, float, np.number))
+        )
         print(f"    ✓ {algorithm} | {strategy} | {fit_elapsed:6.1f}s | {metric_str}")
 
         return {
             "run_id": run_id,
             "model": model,
+            "metrics": metrics,
+            "preprocessor": preprocessor,
+        }
+
+
+def train_soft_voting_ensemble(
+    X_train: Any,
+    y_train: Any,
+    X_val: Any = None,
+    y_val: Any = None,
+    estimators: Optional[list[tuple[str, Any]]] = None,
+    run_name: Optional[str] = "SoftVotingEnsemble",
+) -> dict:
+    """Train a soft-voting ensemble combining LogisticRegression, XGBoost, and LightGBM."""
+    from sklearn.ensemble import VotingClassifier
+
+    mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
+    mlflow.set_experiment(MLFLOW_EXPERIMENT_NAME)
+
+    if estimators is None:
+        from sklearn.linear_model import LogisticRegression
+        from xgboost import XGBClassifier
+        from lightgbm import LGBMClassifier
+
+        counts = np.bincount(np.asarray(y_train).astype(int))
+        pos_weight = float(counts[0] / counts[1]) if len(counts) > 1 and counts[1] > 0 else 1.0
+
+        estimators = [
+            ("lr", LogisticRegression(class_weight="balanced", max_iter=2500, random_state=RANDOM_STATE)),
+            ("xgb", XGBClassifier(scale_pos_weight=pos_weight, eval_metric="aucpr", random_state=RANDOM_STATE)),
+            ("lgbm", LGBMClassifier(class_weight="balanced", random_state=RANDOM_STATE, verbose=-1)),
+        ]
+
+    ensemble = VotingClassifier(estimators=estimators, voting="soft")
+
+    preprocessor = create_preprocessing_pipeline()
+    feature_names = get_feature_names(preprocessor.fit(X_train))
+    X_train_proc = pd.DataFrame(preprocessor.transform(X_train), columns=feature_names)
+    X_val_proc = pd.DataFrame(preprocessor.transform(X_val), columns=feature_names) if X_val is not None else None
+
+    fit_start = time.time()
+    with mlflow.start_run(run_name=run_name, nested=True) as run:
+        run_id = run.info.run_id
+        ensemble.fit(X_train_proc, y_train)
+
+        metrics: dict = {}
+        if X_val_proc is not None and y_val is not None:
+            metrics = _evaluate(ensemble, X_val_proc, y_val)
+            scalar_metrics = {
+                k: float(v)
+                for k, v in metrics.items()
+                if v is not None and isinstance(v, (int, float, np.number))
+            }
+            mlflow.log_metrics(scalar_metrics)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            preproc_path = os.path.join(tmp, "preprocessor.joblib")
+            joblib.dump(preprocessor, preproc_path)
+            mlflow.log_artifact(preproc_path)
+
+        mlflow.sklearn.log_model(
+            ensemble,
+            "model",
+            registered_model_name=MLFLOW_REGISTRY_NAME,
+            serialization_format="cloudpickle",
+        )
+
+        fit_elapsed = time.time() - fit_start
+        metric_str = " | ".join(
+            f"{k}={v:.4f}"
+            for k, v in metrics.items()
+            if v is not None and isinstance(v, (int, float, np.number))
+        )
+        print(f"    ✓ SoftVotingEnsemble | fit: {fit_elapsed:6.1f}s | {metric_str}")
+
+        return {
+            "run_id": run_id,
+            "model": ensemble,
             "metrics": metrics,
             "preprocessor": preprocessor,
         }

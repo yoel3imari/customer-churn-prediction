@@ -45,6 +45,11 @@ jobs:
       - name: Run tests
         run: uv run pytest tests/ -v --cov=src
 
+      - name: Test Docker builds
+        run: |
+          docker build --target runtime -t churn-app:test .
+          docker build -f Dockerfile.mlflow -t churn-mlflow:test .
+
       - name: Upload coverage
         if: always()
         uses: actions/upload-artifact@v4
@@ -52,3 +57,4 @@ jobs:
           name: coverage-report
           path: .coverage
           retention-days: 7
+

@@ -35,7 +35,7 @@ def fetch_experiment_runs(experiment_name: str | None = None) -> list[dict]:
 
 
 def _build_comparison_df(runs: list[dict]) -> pd.DataFrame:
-    valid_algos = {a["name"] for a in config.ALGORITHMS}
+    valid_algos = {a["name"] for a in config.ALGORITHMS} | {"SoftVotingEnsemble"}
     rows: list[dict] = []
     for r in runs:
         params = r.get("params", {})
@@ -150,6 +150,20 @@ def run_full_comparison(dataset_df: pd.DataFrame) -> dict:
             except Exception as exc:
                 elapsed = time.time() - iter_start
                 print(f"FAILED ({elapsed:6.1f}s)  Error: {exc}")
+
+    # ── Train Soft-Voting Ensemble ──────────────────────────────────────────
+    print("=" * 10, "SoftVotingEnsemble", "=" * 10)
+    ens_start = time.time()
+    print("  Training SoftVotingEnsemble (LR + XGB + LGBM) ...  ", end="", flush=True)
+    try:
+        from src.models.train import train_soft_voting_ensemble
+        ens_res = train_soft_voting_ensemble(X_train, y_train, X_test, y_test)
+        ens_elapsed = time.time() - ens_start
+        ens_pr_auc = ens_res["metrics"].get("pr_auc", 0)
+        print(f"done  ({ens_elapsed:6.1f}s)  PR-AUC: {ens_pr_auc:.4f}")
+    except Exception as exc:
+        ens_elapsed = time.time() - ens_start
+        print(f"FAILED ({ens_elapsed:6.1f}s)  Error: {exc}")
 
     total_elapsed = time.time() - overall_start
     print(f"\n{'='*60}")

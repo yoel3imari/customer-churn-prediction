@@ -22,7 +22,7 @@ def create_preprocessing_pipeline() -> Pipeline:
     preprocessor = ColumnTransformer(
         sparse_threshold=0,  # dense output — SMOTE and other models need it
         transformers=[
-            ("scale", RobustScaler(), Columns.CONTINUOUS),
+            ("scale", RobustScaler(), Columns.ALL_CONTINUOUS),
             (
                 "ohe",
                 OneHotEncoder(drop="first", handle_unknown="ignore"),
@@ -41,7 +41,16 @@ def create_preprocessing_pipeline() -> Pipeline:
     )
 
 
+import re
+
+
+def sanitize_feature_name(name: str) -> str:
+    """Sanitize feature names by replacing special JSON/regex chars with underscores."""
+    return re.sub(r"[^\w]", "_", name)
+
+
 def get_feature_names(pipeline: Pipeline) -> list[str]:
     """Return the output feature names of a fitted preprocessing pipeline."""
     preprocessor = pipeline.named_steps["preprocessor"]
-    return list(preprocessor.get_feature_names_out())
+    raw_names = list(preprocessor.get_feature_names_out())
+    return [sanitize_feature_name(n) for n in raw_names]
