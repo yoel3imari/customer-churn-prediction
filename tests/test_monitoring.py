@@ -8,7 +8,10 @@ from fastapi.testclient import TestClient
 from src.api.app import app
 from src.monitoring.drift import DataDriftDetector
 from src.monitoring.logging import configure_logging
-from src.monitoring.metrics import CHURN_PREDICTIONS_COUNTER, CHURN_PROBABILITY_HISTOGRAM
+from src.monitoring.metrics import (
+    CHURN_PREDICTIONS_COUNTER,
+    CHURN_PROBABILITY_HISTOGRAM,
+)
 
 
 @pytest.fixture

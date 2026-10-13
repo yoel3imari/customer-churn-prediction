@@ -9,7 +9,6 @@ import numpy as np
 import pandas as pd
 
 
-
 def add_ratio_features(df: pd.DataFrame) -> pd.DataFrame:
     """Add engineered ratio features derived from usage and billing columns."""
     df = df.copy()

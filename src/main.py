@@ -27,8 +27,8 @@ def cmd_train(args: argparse.Namespace) -> None:
 
 def cmd_tune(args: argparse.Namespace) -> None:
     """Tune hyperparameters for a specific algorithm via Optuna."""
-    from src.data.load import load_data, split_data
     from src.config import ALGORITHMS
+    from src.data.load import load_data, split_data
     from src.models.tune import tune_model
 
     valid_names = {a["name"] for a in ALGORITHMS}
@@ -61,6 +61,7 @@ def cmd_tune(args: argparse.Namespace) -> None:
 def cmd_predict(args: argparse.Namespace) -> None:
     """Run batch predictions from a CSV file or stdin."""
     import pandas as pd
+
     from src.models.predict import ChurnPredictor
 
     if args.csv:
@@ -115,7 +116,7 @@ def cmd_compare(args: argparse.Namespace) -> None:
         print("No finished runs found in MLflow.")
         return
 
-    print(f"\nMLflow Runs (sorted by PR-AUC):")
+    print("\nMLflow Runs (sorted by PR-AUC):")
     print(f"{'='*80}")
     print(df.to_string(index=False))
     print(f"{'='*80}")

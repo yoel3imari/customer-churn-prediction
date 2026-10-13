@@ -1,10 +1,6 @@
-import numpy as np
-import pandas as pd
-import pytest
 
 from src.models.train import train_model
-from src.models.tune import get_param_space, tune_model
-from src.models.evaluate import find_optimal_threshold, compute_metrics
+from src.models.tune import get_param_space
 
 
 def test_train_model_xgboost_with_eval_set(sample_df):

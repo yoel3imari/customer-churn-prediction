@@ -10,10 +10,10 @@ from .metrics import (
 )
 
 __all__ = [
-    "configure_logging",
-    "DataDriftDetector",
-    "CHURN_PREDICTIONS_COUNTER",
     "CHURN_BATCH_PREDICTIONS_COUNTER",
-    "CHURN_PROBABILITY_HISTOGRAM",
     "CHURN_DRIFT_SCORE_GAUGE",
+    "CHURN_PREDICTIONS_COUNTER",
+    "CHURN_PROBABILITY_HISTOGRAM",
+    "DataDriftDetector",
+    "configure_logging",
 ]

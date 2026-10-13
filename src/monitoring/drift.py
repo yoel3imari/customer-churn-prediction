@@ -97,7 +97,7 @@ class DataDriftDetector:
                 try:
                     stat, p_value, _, _ = chi2_contingency(contingency)
                     test_name = "chi_square"
-                except Exception:
+                except ValueError:
                     stat, p_value = 0.0, 1.0
                     test_name = "chi_square_failed"
 

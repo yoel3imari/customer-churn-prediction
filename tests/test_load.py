@@ -1,7 +1,8 @@
+from unittest.mock import patch
+
 import numpy as np
 import pandas as pd
 import pytest
-from unittest.mock import patch
 
 from src.data.load import load_data, split_data
 
@@ -32,19 +33,19 @@ class TestSplitData:
         assert isinstance(y_test, pd.Series)
 
     def test_test_size_ratio(self, split_df):
-        X_train, X_test, y_train, y_test = split_data(split_df)
+        X_train, X_test, _y_train, _y_test = split_data(split_df)
         total = len(X_train) + len(X_test)
         ratio = len(X_test) / total
         assert ratio == pytest.approx(0.25, abs=0.05)
 
     def test_target_not_in_features(self, split_df):
-        X_train, X_test, y_train, y_test = split_data(split_df)
+        X_train, X_test, _y_train, _y_test = split_data(split_df)
         assert "churn" not in X_train.columns
         assert "churn" not in X_test.columns
 
     def test_preserves_churn_ratio(self, split_df):
         original_ratio = split_df["churn"].mean()
-        X_train, X_test, y_train, y_test = split_data(split_df)
+        _X_train, _X_test, y_train, y_test = split_data(split_df)
         assert y_train.mean() == pytest.approx(original_ratio, abs=0.05)
         assert y_test.mean() == pytest.approx(original_ratio, abs=0.05)
 

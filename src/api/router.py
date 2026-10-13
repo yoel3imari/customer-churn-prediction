@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import io
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from functools import lru_cache
 from typing import Any
 
@@ -33,6 +33,9 @@ from .schemas import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Module-level sentinel for required file uploads (avoids ruff B008)
+_FILE_SENTINEL = File(...)
 
 router = APIRouter()
 
@@ -74,7 +77,7 @@ def _try_get_model_version() -> str | None:
 @router.get("/health", response_model=HealthResponse)
 async def health() -> HealthResponse:
     """Return service health status."""
-    return HealthResponse(status="ok", timestamp=datetime.now(timezone.utc))
+    return HealthResponse(status="ok", timestamp=datetime.now(UTC))
 
 
 @router.get("/model/info", response_model=ModelInfo)
@@ -116,7 +119,7 @@ async def predict(request: PredictRequest) -> PredictResponse:
             shap_values: list[float] | None = (
                 shap_raw[0] if shap_raw and len(shap_raw) > 0 else None
             )
-        except Exception as e:
+        except (ValueError, TypeError, RuntimeError) as e:
             logger.warning("SHAP calculation failed (%s); falling back to standard inference", e)
             pred_arr = predictor.predict(df)
             proba = predictor.predict_proba(df)
@@ -151,7 +154,7 @@ async def predict(request: PredictRequest) -> PredictResponse:
 
 
 @router.post("/predict/batch", response_model=BatchPredictResponse)
-async def predict_batch(file: UploadFile = File(...)) -> BatchPredictResponse:
+async def predict_batch(file: UploadFile = _FILE_SENTINEL) -> BatchPredictResponse:
     """Upload a CSV of customer records and return predictions for every row.
 
     The CSV must contain all features expected by the model (feature order
@@ -166,7 +169,7 @@ async def predict_batch(file: UploadFile = File(...)) -> BatchPredictResponse:
     contents = await file.read()
     try:
         df = pd.read_csv(io.BytesIO(contents))
-    except Exception as exc:
+    except (pd.errors.ParserError, ValueError, OSError) as exc:
         raise HTTPException(
             status_code=400, detail=f"Failed to parse CSV: {exc}"
         )
@@ -178,7 +181,7 @@ async def predict_batch(file: UploadFile = File(...)) -> BatchPredictResponse:
 
     try:
         result_df = predictor.predict_batch(df)
-    except Exception as exc:
+    except (ValueError, TypeError, RuntimeError) as exc:
         raise HTTPException(
             status_code=500, detail=f"Batch prediction failed: {exc}"
         )
@@ -218,7 +221,7 @@ async def predict_batch(file: UploadFile = File(...)) -> BatchPredictResponse:
 
 
 @router.post("/monitoring/drift", response_model=DriftReportResponse)
-async def detect_drift(file: UploadFile = File(...)) -> DriftReportResponse:
+async def detect_drift(file: UploadFile = _FILE_SENTINEL) -> DriftReportResponse:
     """Upload a CSV dataset to analyze feature data drift against baseline reference data."""
     if not file.filename or not file.filename.lower().endswith(".csv"):
         raise HTTPException(
@@ -229,7 +232,7 @@ async def detect_drift(file: UploadFile = File(...)) -> DriftReportResponse:
     contents = await file.read()
     try:
         df = pd.read_csv(io.BytesIO(contents))
-    except Exception as exc:
+    except (pd.errors.ParserError, ValueError, OSError) as exc:
         raise HTTPException(
             status_code=400, detail=f"Failed to parse CSV: {exc}"
         )

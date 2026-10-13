@@ -1,12 +1,10 @@
-import numpy as np
 import pandas as pd
 import pytest
 
 from src.features.build import (
+    add_business_flags,
     add_interaction_features,
     add_rfm_features,
-    add_business_flags,
-    build_features,
 )
 from src.features.pipeline import create_preprocessing_pipeline, get_feature_names
 

@@ -28,7 +28,7 @@ def api_health() -> dict[str, Any]:
         resp = requests.get(f"{API_BASE}/health", timeout=5)
         resp.raise_for_status()
         return resp.json()
-    except Exception:
+    except requests.RequestException:
         return {"status": "unreachable", "model_loaded": False}
 
 
@@ -38,7 +38,7 @@ def api_model_info() -> dict[str, Any]:
         resp = requests.get(f"{API_BASE}/model/info", timeout=5)
         resp.raise_for_status()
         return resp.json()
-    except Exception:
+    except requests.RequestException:
         return {}
 
 
@@ -51,7 +51,7 @@ def api_predict(features: dict[str, float], explain: bool = False) -> dict[str, 
         )
         resp.raise_for_status()
         return resp.json()
-    except Exception as e:
+    except requests.RequestException as e:
         st.error(f"Prediction failed: {e}")
         return None
 
@@ -258,7 +258,7 @@ def page_batch_predict() -> None:
                     )
                     resp.raise_for_status()
                     result = resp.json()
-                except Exception as e:
+                except requests.RequestException as e:
                     st.error(f"Batch prediction failed: {e}")
                     return
 

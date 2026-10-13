@@ -1,10 +1,14 @@
 """Paths, column definitions, and constants for the churn prediction pipeline."""
 
+import logging
 import os
 from pathlib import Path
 from typing import ClassVar
 
 import numpy as np
+import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 
 # ── Paths ──────────────────────────────────────────────────────────────────
@@ -325,8 +329,11 @@ def get_feature_defaults() -> dict[str, float]:
             numeric_cols = df.select_dtypes(include=["number"]).columns
             means = df[numeric_cols].mean().to_dict()
             return {k: (float(v) if not np.isnan(v) else 0.0) for k, v in means.items()}
-        except Exception:
-            pass
+        except (OSError, pd.errors.EmptyDataError, pd.errors.ParserError):
+            logger.warning(
+                "Could not read %s; falling back to hardcoded defaults",
+                Paths.DATA_RAW,
+            )
 
     return {
         "revenue": 58.85,
